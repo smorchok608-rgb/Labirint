@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Водный лабиринт</title>
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700&display=swap" rel="stylesheet">
+<style>
+:root{color-scheme:dark;--bg:#070b16;--ink:#e9dcb5;--gold:#d4a73a;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+html,body{margin:0;background:var(--bg);color:var(--ink);font-family:Cinzel,Georgia,serif}
+body{min-height:100vh;display:flex;flex-direction:column;align-items:center;gap:10px;padding:12px}
+h1{margin:4px 0 0;font-size:clamp(20px,4vw,30px);font-weight:700;letter-spacing:.04em}
+#hud{display:flex;gap:16px;align-items:center;flex-wrap:wrap;justify-content:center;font-size:15px}
+#msg{color:var(--gold);min-height:1.3em}
+button{font:inherit;background:#14203a;color:var(--ink);border:1px solid var(--gold);border-radius:8px;padding:6px 14px;cursor:pointer}
+button:focus-visible,canvas:focus-visible{outline:2px solid #6fd0ff;outline-offset:2px}
+canvas{width:min(96vw,76vh,760px);height:auto;border-radius:10px;touch-action:none;background:#050810}
+#sec{position:fixed;right:max(8px,env(safe-area-inset-right,0px));bottom:max(8px,env(safe-area-inset-bottom,0px));width:16px;height:16px;padding:0;border-radius:50%;opacity:.05;border-color:#6fd0ff}#sec:hover,#sec:focus-visible{opacity:.7}
+#pad{display:grid;grid-template-columns:repeat(3,52px);grid-template-rows:repeat(2,44px);gap:6px}
+#pad button{padding:0;font-size:20px}
+#pad button:nth-child(1){grid-area:1/2}#pad button:nth-child(2){grid-area:2/1}#pad button:nth-child(3){grid-area:2/2}#pad button:nth-child(4){grid-area:2/3}
+</style>
+</head>
+<body>
+<h1>Водный лабиринт</h1>
+<div id="hud"><span>Шагов: <b id="st">0</b></span><span>Находок: <b id="fd">0</b>/5</span><span>Открыто: <b id="pc">1</b>%</span><button id="rs">Начать заново</button></div>
+<div id="msg">Двигай фишку стрелками, WASD или кликом по соседней клетке.</div>
+<button id="sec" aria-label="Показать лабиринт"></button>
+<canvas id="cv" width="932" height="932" tabindex="0" aria-label="Лабиринт"></canvas>
+<div id="pad"><button class="u" data-d="0,-1" aria-label="Вверх">↑</button><button data-d="-1,0" aria-label="Влево">←</button><button data-d="0,1" aria-label="Вниз">↓</button><button data-d="1,0" aria-label="Вправо">→</button></div>
+<script>
+const H=["1111111111111111111111111", "0010110110111001111100110", "0001001001110000001101100", "0000010000000001011000010", "0101000010111110111010000", "0110010101111001010101100", "1001101000100000101010000", "0000000100111111010100001", "0010000110001110001010000", "0111011100100101000101110", "0101111110110011110110110", "1100100011001101100111010", "0011000110001110100000100", "0100101000111010100011100", "0011011110101001111111100", "0110011111010111001111011", "0010101110011000111100000", "0101110101011000011001100", "0010011010010111000100110", "1010010100101110100111100", "0101100011000110111110100", "0010001000001100000111000", "0010001010011001111001110", "0111010001101111001101010", "1010101001110101010000101", "1111111111111111111111111"];
+const V=["01000000001000000000000001", "11110100110001111000110011", "11101101101010110100110011", "10011011110101100001011011", "11010101010000101001001111", "10101011010101010100110111", "11101110110010100101011101", "11111111001000001101011101", "10001010011110100110101011", "10001000010011010010010011", "10110000000100100010000001", "10101011001100010111010111", "11010110111000010011101001", "10101010011001101001000011", "11000000000010000100000011", "11001100001001010100011001", "11010010001100111000010111", "10101001011000110110110011", "11010001010100000011000011", "10101101100110011010001011", "10101010110110011010001011", "11011101011100010101000101", "11000101101000100100100011", "10100101010000001101101101", "10001000100000100001010000"];
+const POIS=[[0, 24, 0], [12, 12, 1], [23, 0, 2], [1, 11, 3], [6, 18, 4]];
+const TXT=Array(5).fill('Белая фишка. Она просто стоит здесь.');
+const N=25,CS=36,P=16,cv=document.getElementById('cv'),ctx=cv.getContext('2d');
+let r,c,steps,seen,won,px,py,show=false,found=new Set();
+const $=id=>document.getElementById(id);
+function reset(){r=0;c=0;steps=0;won=false;seen=new Set([0]);found=new Set();px=P+CS/2;py=P+CS/2;ui();$('msg').textContent='Двигай фишку стрелками, WASD или кликом по соседней клетке.'}
+function ui(){$('fd').textContent=found.size;$('st').textContent=steps;$('pc').textContent=Math.round(seen.size/N/N*100)}
+function open(r,c,dr,dc){
+  const nr=r+dr,nc=c+dc;if(nr<0||nc<0||nr>=N||nc>=N)return false;
+  if(dr===-1)return H[r][c]==='0';
+  if(dr===1)return H[r+1][c]==='0';
+  if(dc===-1)return V[r][c]==='0';
+  return V[r][c+1]==='0';
+}
+function move(dc,dr){
+  if(won||!open(r,c,dr,dc))return;
+  r+=dr;c+=dc;steps++;seen.add(r*N+c);
+  const p=POIS.find(q=>q[0]===r&&q[1]===c);if(p&&!found.has(p[2])){found.add(p[2]);$('msg').textContent=TXT[p[2]]}
+  ui();
+  if(r===N-1&&c===N-1){won=true;$('msg').textContent='Выход найден за '+steps+' шагов! Mischief managed.'}
+}
+addEventListener('keydown',e=>{
+  const m={ArrowUp:[0,-1],ArrowDown:[0,1],ArrowLeft:[-1,0],ArrowRight:[1,0],w:[0,-1],s:[0,1],a:[-1,0],d:[1,0],ц:[0,-1],ы:[0,1],ф:[-1,0],в:[1,0]}[e.key];
+  if(m){e.preventDefault();move(m[0],m[1])}
+});
+document.querySelectorAll('#pad button').forEach(b=>b.onclick=()=>{const[a,d]=b.dataset.d.split(',').map(Number);move(a,d)});
+$('rs').onclick=reset;$('sec').onclick=()=>{show=!show};
+cv.addEventListener('pointerdown',e=>{
+  const b=cv.getBoundingClientRect(),k=cv.width/b.width;
+  const cc=Math.floor(((e.clientX-b.left)*k-P)/CS),rr=Math.floor(((e.clientY-b.top)*k-P)/CS);
+  const dc=cc-c,dr=rr-r;
+  if(Math.abs(dc)+Math.abs(dr)===1)move(dc,dr);
+});
+function walls(){
+  const sn=(i,j)=>show||i>=0&&j>=0&&i<N&&j<N&&seen.has(i*N+j);
+  ctx.beginPath();
+  for(let i=0;i<=N;i++)for(let j=0;j<=N;j++){
+    if(j<N&&H[i][j]==='1'&&(sn(i-1,j)||sn(i,j))){ctx.moveTo(P+j*CS,P+i*CS);ctx.lineTo(P+(j+1)*CS,P+i*CS)}
+    if(i<N&&V[i][j]==='1'&&(sn(i,j-1)||sn(i,j))){ctx.moveTo(P+j*CS,P+i*CS);ctx.lineTo(P+j*CS,P+(i+1)*CS)}
+  }
+}
+function poi(k,x,y,t){
+  y+=Math.sin(t*2.2+x)*1.5;
+  const g=ctx.createRadialGradient(x,y,2,x,y,CS*1.1);g.addColorStop(0,'rgba(255,255,255,.5)');g.addColorStop(1,'rgba(255,255,255,0)');
+  ctx.fillStyle=g;ctx.beginPath();ctx.arc(x,y,CS*1.1,0,7);ctx.fill();
+  ctx.fillStyle='#fff';ctx.strokeStyle='#d3dae6';ctx.lineWidth=2.5;ctx.beginPath();ctx.arc(x,y,CS*.43,0,7);ctx.fill();ctx.stroke();
+  const s=CS*.27;ctx.lineWidth=1.2;
+  ctx.beginPath();ctx.ellipse(x,y+s*.55,s*1.15,s*.38,0,0,7);ctx.fill();ctx.stroke();
+  ctx.beginPath();ctx.moveTo(x-s*.75,y+s*.45);ctx.quadraticCurveTo(x-s*.35,y-s*.6,x+s*.45,y-s*1.05);ctx.quadraticCurveTo(x+s*.1,y-s*.3,x+s*.75,y+s*.45);ctx.closePath();ctx.fill();ctx.stroke();
+  ctx.beginPath();ctx.moveTo(x-s*.68,y+s*.3);ctx.quadraticCurveTo(x,y+s*.12,x+s*.68,y+s*.3);ctx.stroke();
+}
+function token(x,y,t){
+  const bob=Math.sin(t*2.2)*1.5;y+=bob;
+  const g=ctx.createRadialGradient(x,y,2,x,y,CS*1.3);g.addColorStop(0,'rgba(255,214,120,.55)');g.addColorStop(1,'rgba(255,214,120,0)');
+  ctx.fillStyle=g;ctx.beginPath();ctx.arc(x,y,CS*1.3,0,7);ctx.fill();
+  ctx.fillStyle='#1b1236';ctx.strokeStyle='#d4a73a';ctx.lineWidth=2.5;ctx.beginPath();ctx.arc(x,y,CS*.43,0,7);ctx.fill();ctx.stroke();
+  const s=CS*.27;
+  ctx.fillStyle='#5a1017';ctx.beginPath();ctx.ellipse(x,y+s*.55,s*1.15,s*.38,0,0,7);ctx.fill();
+  ctx.fillStyle='#8c1d28';ctx.beginPath();ctx.moveTo(x-s*.75,y+s*.45);ctx.quadraticCurveTo(x-s*.35,y-s*.6,x+s*.45,y-s*1.05);ctx.quadraticCurveTo(x+s*.1,y-s*.3,x+s*.75,y+s*.45);ctx.closePath();ctx.fill();
+  ctx.strokeStyle='#e8c25a';ctx.lineWidth=1.8;ctx.beginPath();ctx.moveTo(x-s*.68,y+s*.3);ctx.quadraticCurveTo(x,y+s*.12,x+s*.68,y+s*.3);ctx.stroke();
+  ctx.fillStyle='#ffe9a8';ctx.globalAlpha=.6+.4*Math.sin(t*5);ctx.beginPath();ctx.arc(x+s*.5,y-s*1.0,2.2,0,7);ctx.fill();ctx.globalAlpha=1;
+}
+function frame(ms){
+  const t=ms/1000;
+  px+=(P+c*CS+CS/2-px)*.25;py+=(P+r*CS+CS/2-py)*.25;
+  ctx.fillStyle='#050810';ctx.fillRect(0,0,cv.width,cv.height);
+  ctx.fillStyle='#0b1326';ctx.fillRect(P,P,N*CS,N*CS);
+  if(show){ctx.fillStyle='rgba(233,205,140,.16)';ctx.fillRect(P,P,N*CS,N*CS)}
+  for(const k of seen){
+    const i=Math.floor(k/N),j=k%N;
+    ctx.fillStyle='rgba(233,205,140,'+(.82+.05*Math.sin(t*1.5+i+j))+')';
+    ctx.fillRect(P+j*CS,P+i*CS,CS,CS);
+  }
+  const g=ctx.createRadialGradient(px,py,4,px,py,CS*2.2);g.addColorStop(0,'rgba(255,225,150,.22)');g.addColorStop(1,'rgba(255,225,150,0)');
+  ctx.fillStyle=g;ctx.fillRect(P,P,N*CS,N*CS);
+  if(seen.has(N*N-1)){ctx.fillStyle='rgba(255,215,90,'+(.25+.15*Math.sin(t*3))+')';ctx.fillRect(P+(N-1)*CS+4,P+(N-1)*CS+4,CS-8,CS-8)}
+  ctx.lineCap='round';ctx.lineJoin='round';
+  walls();
+  ctx.save();ctx.shadowColor='#2aa4e8';ctx.shadowBlur=12;ctx.strokeStyle='#0c4a7a';ctx.lineWidth=9;ctx.stroke();ctx.restore();
+  ctx.strokeStyle='#27a6ea';ctx.lineWidth=5.5;ctx.stroke();
+  ctx.setLineDash([5,13]);ctx.lineDashOffset=-t*24;ctx.strokeStyle='#c8f3ff';ctx.lineWidth=2;ctx.stroke();
+  ctx.setLineDash([3,17]);ctx.lineDashOffset=t*18;ctx.strokeStyle='rgba(255,255,255,.7)';ctx.lineWidth=1.2;ctx.stroke();
+  ctx.setLineDash([]);
+  for(const q of POIS){const sv=seen.has(q[0]*N+q[1]);if(sv||show){ctx.globalAlpha=sv?1:.5;poi(q[2],P+q[1]*CS+CS/2,P+q[0]*CS+CS/2,t);ctx.globalAlpha=1}}
+  token(px,py,t);
+  requestAnimationFrame(frame);
+}
+reset();requestAnimationFrame(frame);cv.focus({preventScroll:true});
+</script>
+</body>
+</html>
